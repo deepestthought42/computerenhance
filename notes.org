@@ -1,0 +1,139 @@
+* 8086
+** playing around with bitfields
+#+begin_src C :includes <stdio.h> /home/renee/src/computerenhance/cutils/files.c /home/renee/src/computerenhance/8086/instructions.c :libs -lm
+initialize_global_s8_arena(1*MB);
+arena a = newarena(1*GB);
+file file = s8slurp_file(&a, s("/home/renee/src/computerenhance/listings/perfaware/part1/listing_0037_single_register_mov"));
+
+if (file.status != file_OK)
+  exit(1);
+
+
+Instruction* inst = (Instruction*)file.v.data;
+
+switch (inst->code) {
+ case 0b10001000:
+ case 0b10001001:
+ case 0b10001010:
+ case 0b10001011:
+   printf("Found mov instruction.\n");
+   break;
+ default:
+   printf("Found UNKNOWN instruction.\n");
+}
+
+#+end_src
+
+#+RESULTS:
+: Found mov instruction.
+
+** more flexible instructions
+#+begin_src C :flags -ggdb :libs -lm :includes <stdio.h> /home/renee/src/computerenhance/cutils/files.c /home/renee/src/computerenhance/cutils/dynamic.c
+initialize_global_s8_arena(1 * MB);
+arena a = newarena(1 * GB);
+file file =
+    s8slurp_file(&a, s("/home/renee/src/computerenhance/listings/perfaware/"
+                       "part1/listing_0037_single_register_mov"));
+
+if (file.status != file_OK)
+  exit(1);
+
+
+
+typedef struct {
+  u8 no_bits;
+  b8 is_code;
+  u8 bits_as_u8;
+} Bits; 
+
+deflist(Bits, BitsList);
+deflist(u8, TableIndices);
+
+
+Decoder d = { s("test"), 2 };
+,*push(&a, &d.bit_description) = (Bits){ 6, true, 0b100010 };
+,*push(&a, &d.bit_description) = (Bits){ 2 };
+
+
+TableIndices indices = get_indices_for_decoder(&a, d);
+
+printf("len indices: %ld\n", indices.len);
+#+end_src
+
+#+RESULTS:
+: len indices: 0
+
+* scratch
+** offset
+#+begin_src C :includes <stddef.h> <stdio.h> :results output
+
+typedef struct {
+    char a;
+    double b;
+    unsigned int c;
+} MyStruct;
+
+int main() {
+    size_t offset = offsetof(MyStruct, b);
+    printf("Offset of member 'c' is: %zu bytes\n", offset);
+
+    MyStruct s = {'a', 1.0, 2};
+    printf("Before set: %f\n", s.b);
+    *((double*)(&s + offset)) = 20;
+
+    printf("After set: %f\n", s.b);
+    
+    return 0;
+}
+
+
+
+#+end_src
+
+#+RESULTS:
+: Offset of member 'c' is: 8 bytes
+: Before set: 1.000000
+: After set: 1.000000
+
+** printing bitfield
+#+begin_src C :includes <stdio.h>
+
+struct Bitfield {
+    unsigned int a : 4;
+    unsigned int b : 3;
+    unsigned int c : 5;
+};
+
+void print_bits(unsigned int num, int bits) {
+    for (int i = bits - 1; i >= 0; i--) {
+        putchar((num & (1 << i)) ? '1' : '0');
+    }
+    putchar('\n');
+}
+
+int main() {
+    struct Bitfield field = {3, 5, 15}; // Example values
+    
+    // Get the total size of the struct in bits
+    size_t total_bits = sizeof(field) * 8;
+
+    printf("Total size of struct in bits: %zu\n", total_bits);
+
+    // To print individual bitfield sizes at compile time:
+    printf("Size of bitfield 'a': %zu bits\n", sizeof(field.a) * 8);
+    printf("Size of bitfield 'b': %zu bits\n", sizeof(field.b) * 8);
+    printf("Size of bitfield 'c': %zu bits\n", sizeof(field.c) * 8);
+
+
+    printf("a: ");
+    print_bits(field.a, 4);
+    printf("b: ");
+    print_bits(field.b, 3);
+    printf("c: ");
+    print_bits(field.c, 5);
+
+    return 0;
+}
+#+end_src
+
+#+RESULTS:

@@ -1,0 +1,6 @@
+[submodule "cutils"]
+	path = cutils
+	url = git@github.com:deepestthought42/cutils.git
+[submodule "listings"]
+	path = listings
+	url = https://github.com/cmuratori/computer_enhance.git
