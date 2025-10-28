@@ -64,6 +64,29 @@ printf("len indices: %ld\n", indices.len);
 : len indices: 0
 
 * scratch
+** bit manipulation
+#+begin_src C :flags -ggdb :libs -lm :includes <stdio.h>
+typedef unsigned char u8;
+
+
+
+u8 single_masks[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128 };
+u8 cover_masks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
+
+#define BIT(which_bit, value) ((value) & single_masks[(which_bit)]) >> ((which_bit) - 1)
+#define BITS(start_bit, end_bit, value) (((value) & cover_masks[(end_bit)] & ~cover_masks[(start_bit) - 1]) >> ((start_bit) - 1))
+u8 bit_no = 8;
+u8 val = 0b10001001;
+/* for (u8 i = 1; i < 9; i++) */
+/*   printf("Bit no. %d of %d is: %d\n", i, val, BIT(i, val)); */
+
+printf("Bits 1-4 of: %d are: %b\n", val, BITS(5, 8, val));
+
+#+end_src
+
+#+RESULTS:
+: Bits 1-4 of: 137 are: 1000
+
 ** offset
 #+begin_src C :includes <stddef.h> <stdio.h> :results output
 

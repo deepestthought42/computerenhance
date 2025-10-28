@@ -66,25 +66,17 @@ Arguments get_cmd_line_arguments(arena* a, int argc, char **argv)
 
 
 
-#define OPCODE(byte) ((byte) & 0b11111100)
 
-typedef struct TableEntry {
-  
-} TableEntry;
-  
-
-
-
-void do_things(arena* a, arena s, Arguments args)
+void decode(arena* a, arena s, Arguments args)
 {
   file file = s8slurp_file(a, args.input_path);
   if (file.status != file_OK)
     exit_with_msgs(make_s8_array(a, file.error_msg), 1);
-  /* Decoder d = { s(""), &mov_reg_mem_to_from_reg }; */
-  /* *push(a, &d.bit_description) = (Bits){ 6, true, 0b100010 }; */
-  /* *push(a, &d.bit_description) = (Bits){ 2 }; */
 
   InstructionTable table = create_8086_instruction_table(s);
+  InstructionStream stream = { .instructions = { (u8*)file.v.data, file.v.len } };
+  
+  
   
 }
 
@@ -95,6 +87,6 @@ int main(int argc, char **argv) {
   arena a = newarena(1*GB);
   arena scratch = newarena(1*GB);
   Arguments args = get_cmd_line_arguments(&a, argc, argv);
-  do_things(&a, scratch, args);
+  decode(&a, scratch, args);
   return 0;
 }
