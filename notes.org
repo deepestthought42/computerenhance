@@ -1,4 +1,28 @@
 * 8086
+** memory layout
+#+begin_src C :includes <stdio.h>
+typedef unsigned char u8;
+typedef unsigned short u16;
+
+#define CAT(a, b) a##b
+#define DBLREG(name) union { u16 CAT(name, X); struct { u8 CAT(name, H); u8 CAT(name, L); };};
+
+
+struct {
+  DBLREG(A);
+  DBLREG(B);
+  DBLREG(C);
+  DBLREG(D);
+} registers_8086 = {0};
+
+registers_8086.AX = 0b1001100101101001;
+printf("AX: %b, AL: %b, AH: %b\n", registers_8086.AX, registers_8086.AL, registers_8086.AH);
+
+#+end_src
+
+#+RESULTS:
+| AX: 1001100101101001 | AL: 10011001 | AH: 1101001 |
+
 ** playing around with bitfields
 #+begin_src C :includes <stdio.h> /home/renee/src/computerenhance/cutils/files.c /home/renee/src/computerenhance/8086/instructions.c :libs -lm
 initialize_global_s8_arena(1*MB);

@@ -2,9 +2,9 @@
 #include "../cutils/dynamic.c"
 #include "../cutils/s8.c"
 #include "../cutils/types.c"
-#include "utils.c"
 #include "instruction_stream.c"
-
+#include "utils.c"
+#include "memory.c"
 
 typedef s8 str;
 typedef str (*create_asm_line)(arena *, InstructionStream *, s8);
@@ -88,15 +88,26 @@ void add_indices_for_decoder(arena s, Decoder d, InstructionTable *table) {
     ;
 }
 
-u8 single_masks[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128 };
-u8 cover_masks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
-
+u8 single_masks[] = {0, 1, 2, 4, 8, 16, 32, 64, 128};
+u8 cover_masks[] = {0, 1, 3, 7, 15, 31, 63, 127, 255};
 
 #define BIT(which_bit, value)                                                  \
   ((value) & single_masks[(which_bit)]) >> ((which_bit) - 1)
 #define BRANGE(lower_bit, higher_bit, value)                                   \
   (((value) & cover_masks[(higher_bit)] & ~cover_masks[(lower_bit) - 1]) >>    \
    ((lower_bit) - 1))
+
+#define ADD_OP(inst_fn, bit_descriptions)                                      \
+  current_decoder = (Decoder){s(#inst_fn), &(inst_fn)};                        \
+  bit_descriptions;                                                            \
+  add_indices_for_decoder(s, current_decoder, &ret)
+
+#define FIXED(no_bits, pattern)                                                \
+  *push(&s, &current_decoder.bit_description) =                                \
+      (Bits){(no_bits), true, (pattern)};
+
+#define VAR(no_bits)                                                           \
+  *push(&s, &current_decoder.bit_description) = (Bits){(no_bits)};
 
 s8 register_field_encoding(u8 reg, b8 w) {
   w = !w; // this way the "table" below corresponds to table 4-9 in the 8086
@@ -119,7 +130,7 @@ s8 register_field_encoding(u8 reg, b8 w) {
   case 0b111:
     return w ? s("BH") : s("DI");
   default:
-    exit_with_msg(s("REG is unparsable.") , 1);
+    exit_with_msg(s("REG is unparsable."), 1);
     return s(""); // muffle compiler warning
   }
 }
@@ -128,14 +139,14 @@ s8 mov_reg_mem_to_from_reg(arena *a, InstructionStream *is, s8 desc) {
   printf("Found mov_reg_mem_to_from_reg.\n");
   u8 b1 = next(is);
   u8 b2 = next(is);
-  
+
   u8 W = BIT(1, b1);
   u8 D = BIT(2, b2);
 
   u8 mod = BRANGE(7, 8, b2);
   u8 reg = BRANGE(4, 6, b2);
   u8 r_m = BRANGE(1, 3, b2);
-  
+
   return s8("");
 }
 
@@ -149,16 +160,6 @@ s8 mov_mem_to_acc(arena *a, InstructionStream *is, s8 desc) { return s8(""); }
 
 s8 mov_acc_to_mem(arena *a, InstructionStream *is, s8 desc) { return s8(""); }
 
-#define ADD_OP(inst_fn, bit_descriptions)                                      \
-  current_decoder = (Decoder) { s(#inst_fn), &(inst_fn) };                     \
-  bit_descriptions;                                                            \
-  add_indices_for_decoder(s, current_decoder, &ret)
-
-#define FIXED(no_bits, pattern)                                                \
-  *push(&s, &current_decoder.bit_description) =                                \
-      (Bits){(no_bits), true, (pattern)};
-#define VAR(no_bits)                                                           \
-  *push(&s, &current_decoder.bit_description) = (Bits){(no_bits)};
 
 InstructionTable create_8086_instruction_table(arena s) {
   InstructionTable ret = {0};
@@ -167,7 +168,6 @@ InstructionTable create_8086_instruction_table(arena s) {
     ret.descriptions[i] = s("unknown instruction");
   }
   Decoder current_decoder = {0};
-
 
   // move
 
