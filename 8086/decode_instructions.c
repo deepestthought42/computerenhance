@@ -8,6 +8,7 @@
 #include "../cutils/s8s.c"
 #include "instructions_table.c"
 #include "utils.c"
+#include "computer.c"
 
 typedef struct {
   s8 input_path;
@@ -69,14 +70,25 @@ void decode(arena *a, arena s, Arguments args) {
     }
   };
 
+  Computer c = {0};
+
+  s8s content = make_s8_array_cstrs(&s, "bits 16", "");
+  
+  
   while (more_in(stream)) {
     u8 index = peek(&stream);
     Decoder* d = &table.decoders[index];
-    if (d->unknown) 
-      exit_with_msg(s8printf(GLOBAL_A, "unknown instruction: %b", index), 1);
+    if (d->unknown)
+      exit_with_msg(s8printf(GLOBAL_A,
+                             "unknown instruction at byte position: %d :: %b",
+                             stream.current_pos, index), 1);
     
-    s8 asm_line = d->creator(a, &stream, d->name);
+    *push(&s, &content) = d->creator(&s, &stream, d->name, &c);
+    
   }
+  
+  write_strings_to_file(args.output_path, content);
+  
 }
 
 int main(int argc, char **argv) {

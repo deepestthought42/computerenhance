@@ -17,6 +17,7 @@ b8 more_in(InstructionStream s) {
   return s.current_pos < s.instructions.len;
 }
 
+
 u8 peek(InstructionStream *s) {
   return s->instructions.data[s->current_pos];
 }

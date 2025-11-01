@@ -7,7 +7,7 @@
 #include "computer.c"
 
 typedef s8 str;
-typedef str (*create_asm_line)(arena *, InstructionStream *, s8);
+typedef str (*instruction_fn)(arena *, InstructionStream *, s8, Computer*);
 
 
 
@@ -21,7 +21,7 @@ deflist(Bits, BitsList);
 
 typedef struct {
   s8 name;
-  create_asm_line creator;
+  instruction_fn creator;
   BitsList bit_description;
   b8 unknown;
 } Decoder;
@@ -48,8 +48,8 @@ void add_indices_for_decoder(arena s, Decoder d, InstructionTable *table) {
   TableIndices new_indices = {0};
 
   u8 total_width = 0;
-  foreach (b, d.bit_description, total_width += b->no_bits)
-    ;
+  foreach (b, d.bit_description, total_width += b->no_bits);
+  
   assert(total_width == NO_BITS_IN_BYTE);
   u8 current_end = 0;
   for (u32 bi = 0; bi < d.bit_description.len; ++bi) {
@@ -59,8 +59,7 @@ void add_indices_for_decoder(arena s, Decoder d, InstructionTable *table) {
     if (b.is_code) {
       u8 val = (b.bits_as_u8 << (NO_BITS_IN_BYTE - b.no_bits));
       if (len_indices)
-        foreach (ti, new_indices, ti->index |= val)
-          ;
+        foreach (ti, new_indices, ti->index |= val);
       else
         *push(&s, &new_indices) = (TableIndex){val, d };
     } else {
@@ -86,8 +85,7 @@ void add_indices_for_decoder(arena s, Decoder d, InstructionTable *table) {
     
     table->decoders[index->index] = index->decoder;
 
-  })
-    ;
+  });
 }
 
 u8 single_masks[] = {0, 1, 2, 4, 8, 16, 32, 64, 128};
@@ -95,7 +93,7 @@ u8 cover_masks[] = {0, 1, 3, 7, 15, 31, 63, 127, 255};
 
 #define BIT(which_bit, value)                                                  \
   ((value) & single_masks[(which_bit)]) >> ((which_bit) - 1)
-#define BRANGE(lower_bit, higher_bit, value)                                   \
+#define BRANGE(higher_bit, lower_bit, value)                                   \
   (((value) & cover_masks[(higher_bit)] & ~cover_masks[(lower_bit) - 1]) >>    \
    ((lower_bit) - 1))
 
@@ -123,53 +121,68 @@ Register register_field_encoding(u8 reg, b8 w, Computer* computer) {
   
   switch (reg) {
   case 0b000:
-    return w ? R(AL) : R(AX);
+    return w ? R(al) : R(ax);
   case 0b001:
-    return w ? R(CL) : R(CX);
+    return w ? R(cl) : R(cx);
   case 0b010:
-    return w ? R(DL) : R(DX);
+    return w ? R(dl) : R(dx);
   case 0b011:
-    return w ? R(BL) : R(BX);
+    return w ? R(bl) : R(bx);
   case 0b100:
-    return w ? R(AH) : R(SP);
+    return w ? R(ah) : R(sp);
   case 0b101:
-    return w ? R(CH) : R(BP);
+    return w ? R(ch) : R(bp);
   case 0b110:
-    return w ? R(DH) : R(SI);
+    return w ? R(dh) : R(si);
   case 0b111:
-    return w ? R(BH) : R(DI);
+    return w ? R(bh) : R(di);
   default:
     exit_with_msg(s("REG is unparsable."), 1);
     return (Register) {0};
   }
+
+#undef R  
 }
 
-s8 mov_reg_mem_to_from_reg(arena *a, InstructionStream *is, s8 desc) {
-  
-  u8 b1 = pop(is);
-  u8 b2 = pop(is);
+#define INST_FN(name)                           \
+  s8 name(arena *a, InstructionStream *is, s8 desc, Computer* computer)
 
-  u8 W = BIT(1, b1);
-  u8 D = BIT(2, b2);
-
-  u8 mod = BRANGE(7, 8, b2);
-  u8 reg = BRANGE(4, 6, b2);
-  u8 r_m = BRANGE(1, 3, b2);
-
+INST_FN(mov_reg_mem_to_from_reg) {
   
+  u8 byte1 = pop(is);
+  u8 byte2 = pop(is);
+
+  u8 W = BIT(1, byte1);
+  u8 reg_is_destination = BIT(2, byte1);
+
+  u8 mod = BRANGE(8, 7, byte2);
+  u8 reg = BRANGE(6, 4, byte2);
+  u8 r_m = BRANGE(3, 1, byte2);
+
+  Register r_reg = register_field_encoding(reg, W, computer);
+  Register r_r_m = register_field_encoding(r_m, W, computer);
+
+  Register dest = reg_is_destination ? r_reg : r_r_m;
+  Register src = reg_is_destination ? r_r_m : r_reg;
   
+  return s8printf(a, "mov %s, %s", c(dest.name), c(src.name));
+}
+
+INST_FN(mov_im_to_reg_mem) {
   return s8("");
 }
 
-s8 mov_im_to_reg_mem(arena *a, InstructionStream *is, s8 desc) {
+INST_FN(mov_im_to_reg) {
   return s8("");
 }
 
-s8 mov_im_to_reg(arena *a, InstructionStream *is, s8 desc) { return s8(""); }
+INST_FN(mov_mem_to_acc) {
+  return s8("");
+}
 
-s8 mov_mem_to_acc(arena *a, InstructionStream *is, s8 desc) { return s8(""); }
-
-s8 mov_acc_to_mem(arena *a, InstructionStream *is, s8 desc) { return s8(""); }
+INST_FN(mov_acc_to_mem) {
+  return s8("");
+}
 
 
 InstructionTable create_8086_instruction_table(arena s) {

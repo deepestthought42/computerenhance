@@ -4,18 +4,18 @@
 
 
 #define CAT(a, b) a##b
-#define DBLREG(name) union { u16 CAT(name, X); struct { u8 CAT(name, H); u8 CAT(name, L); };};
+#define DBLREG(name) union { u16 CAT(name, x); struct { u8 CAT(name, h); u8 CAT(name, l); };};
 
 typedef struct {
-  DBLREG(A);
-  DBLREG(B);
-  DBLREG(C);
-  DBLREG(D);
+  DBLREG(a);
+  DBLREG(b);
+  DBLREG(c);
+  DBLREG(d);
 
-  u16 SP;
-  u16 BP;
-  u16 SI;
-  u16 DI;
+  u16 sp;
+  u16 bp;
+  u16 si;
+  u16 di;
   
 } Registers;
 
