@@ -13,15 +13,20 @@ typedef struct {
   u32 current_pos;
 } InstructionStream;
 
-u8 current(InstructionStream *s) {
+b8 more_in(InstructionStream s) {
+  return s.current_pos < s.instructions.len;
+}
+
+u8 peek(InstructionStream *s) {
   return s->instructions.data[s->current_pos];
 }
 
-u8 next(InstructionStream *stream) {
+u8 pop(InstructionStream *stream) {
   if (stream->current_pos + 1 > stream->instructions.len) {
-    exit_with_msg(GLOBAL_A, "Cannot read %d bytes from instruction stream", n), 1);
+    exit_with_msg(s("Cannot read byte from instruction stream"), 1);
   }
-  return stream->instructions.data[stream->current_pos++];
+  stream->current_pos += 1;
+  return stream->instructions.data[stream->current_pos-1];
 }
 
 byte_slice next_slice(InstructionStream *stream, u32 n) {

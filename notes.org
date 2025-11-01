@@ -8,11 +8,46 @@ typedef unsigned short u16;
 #define DBLREG(name) union { u16 CAT(name, X); struct { u8 CAT(name, H); u8 CAT(name, L); };};
 
 
+typedef struct {
+  u8 mem[32];
+} Computer;
+
+#define ACCESSOR(name, type, offset)            \
+  type* name(Registers* r) { return (type*)(&r->mem[offset]); };
+
+ACCESSOR(AX, u16, 0);
+ACCESSOR(AL, u8, 0);
+ACCESSOR(AH, u8, 1);
+
+ACCESSOR(BX, u16, 2);
+ACCESSOR(BL, u8, 2);
+ACCESSOR(BH, u8, 3);
+
+ACCESSOR(CX, u16, 4);
+ACCESSOR(CL, u8, 4);
+ACCESSOR(CH, u8, 5);
+
+ACCESSOR(DX, u16, 6);
+ACCESSOR(DL, u8, 6);
+ACCESSOR(DH, u8, 7);
+
+ACCESSOR(SP, u16, 8);
+ACCESSOR(BP, u16, 10);
+ACCESSOR(DI, u16, 12);
+ACCESSOR(SI, u16, 14);
+
+
 struct {
   DBLREG(A);
   DBLREG(B);
   DBLREG(C);
   DBLREG(D);
+
+  u16 SP;
+  u16 BP;
+  u16 DI;
+  u16 SI;
+  
 } registers_8086 = {0};
 
 registers_8086.AX = 0b1001100101101001;
@@ -141,6 +176,15 @@ int main() {
 : Offset of member 'c' is: 8 bytes
 : Before set: 1.000000
 : After set: 1.000000
+
+** i++
+#+begin_src C :includes <stdio.h>
+unsigned int i = 0;
+printf("%d\n", i++);
+#+end_src
+
+#+RESULTS:
+: 0
 
 ** printing bitfield
 #+begin_src C :includes <stdio.h>

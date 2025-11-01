@@ -69,7 +69,14 @@ void decode(arena *a, arena s, Arguments args) {
     }
   };
 
-  
+  while (more_in(stream)) {
+    u8 index = peek(&stream);
+    Decoder* d = &table.decoders[index];
+    if (d->unknown) 
+      exit_with_msg(s8printf(GLOBAL_A, "unknown instruction: %b", index), 1);
+    
+    s8 asm_line = d->creator(a, &stream, d->name);
+  }
 }
 
 int main(int argc, char **argv) {
