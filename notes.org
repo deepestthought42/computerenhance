@@ -148,22 +148,46 @@ printf("Bits 1-4 of: %d are: %b\n", val, BITS(5, 8, val));
 
 ** offset
 #+begin_src C :includes <stddef.h> <stdio.h> :results output
+typedef unsigned char u8;
+typedef signed char i8;
+typedef unsigned short u16;
+typedef signed short i16;
+
+
+#define CAT(a, b) a##b
+#define DBLREG(name)                                                           \
+    union {                                                                    \
+        u16 CAT(name, x);                                                      \
+        struct {                                                               \
+            u8 CAT(name, h);                                                   \
+            u8 CAT(name, l);                                                   \
+        };                                                                     \
+    };
 
 typedef struct {
-    char a;
-    double b;
-    unsigned int c;
-} MyStruct;
+    DBLREG(a);
+    DBLREG(b);
+    DBLREG(c);
+    DBLREG(d);
+
+    u16 sp;
+    u16 bp;
+    u16 si;
+    u16 di;
+
+} Registers;
+
+
 
 int main() {
-    size_t offset = offsetof(MyStruct, b);
-    printf("Offset of member 'c' is: %zu bytes\n", offset);
+    size_t offset = offsetof(Registers, al);
+    printf("Offset of member 'ch' is: %zu bytes\n", offset);
 
-    MyStruct s = {'a', 1.0, 2};
-    printf("Before set: %f\n", s.b);
-    *((double*)(&s + offset)) = 20;
+    /* MyStruct s = {'a', 1.0, 2}; */
+    /* printf("Before set: %f\n", s.b); */
+    /* *((double*)(&s + offset)) = 20; */
 
-    printf("After set: %f\n", s.b);
+    /* printf("After set: %f\n", s.b); */
     
     return 0;
 }
@@ -173,9 +197,7 @@ int main() {
 #+end_src
 
 #+RESULTS:
-: Offset of member 'c' is: 8 bytes
-: Before set: 1.000000
-: After set: 1.000000
+: Offset of member 'ch' is: 1 bytes
 
 ** i++
 #+begin_src C :includes <stdio.h>
@@ -185,6 +207,20 @@ printf("%d\n", i++);
 
 #+RESULTS:
 : 0
+** i8 and i16
+#+begin_src C :includes <stdio.h>
+typedef unsigned char u8;
+typedef signed char i8;
+typedef signed short i16;
+
+i8 d = (i8)-12;
+i16 d1 = (i16)d;
+
+printf("%d", d1);
+#+end_src
+
+#+RESULTS:
+: -12
 
 ** printing bitfield
 #+begin_src C :includes <stdio.h>

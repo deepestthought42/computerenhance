@@ -12,7 +12,7 @@
 void exit_with_msgs(s8s msgs, int error_code)
 {
   puts(BOLD_RED "Error(s):" OFF);
-  foreach(msg, msgs, printf("- %s \n", c(*msg)););
+  foreach(msg, msgs, printf("%s \n", c(*msg)););
   puts("\nExiting.");
   exit(error_code);
 }

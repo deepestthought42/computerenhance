@@ -58,37 +58,46 @@ Arguments get_cmd_line_arguments(arena* a, int argc, char** argv)
   return retval;
 }
 
-void decode(arena* a, arena s, Arguments args)
+void decode(arena s, Arguments args)
 {
-  file file = s8slurp_file(a, args.input_path);
+  file file = s8slurp_file(&s, args.input_path);
   if (file.status != file_OK)
-    exit_with_msgs(make_s8_array(a, file.error_msg), 1);
+    exit_with_msgs(make_s8_array(&s, file.error_msg), 1);
 
   InstructionTable table = create_8086_instruction_table(s);
   InstructionStream stream
     = { .instructions = { (u8*)file.v.data, file.v.len } };
 
   Computer c = { 0 };
+  create_effective_address_table(&s, &c);
 
   s8s content = make_s8_array_cstrs(&s, "bits 16", "");
 
   while (more_in(stream)) {
     u8 index = peek(&stream);
     Decoder* d = &table.decoders[index];
-    if (d->unknown)
-      exit_with_msg(
-        s8printf(GLOBAL_A, "unknown instruction at byte position: %d :: %b",
-          stream.current_pos, index),
-        1);
+    if (d->unknown) {
+      s8s msgs = { 0 };
+      *push(&s, &msgs)
+        = s8printf(&s, "unknown instruction at byte position: %d :: %b",
+          stream.current_pos, index);
+      *push(&s, &msgs) = s8printf(&s, "-- current content:");
+      foreach(c, content, *push(&s, &msgs) = *c);
+      exit_with_msgs(msgs, 1);
+    }
     u32 pos_before = stream.current_pos;
     *push(&s, &content) = d->inst(&s, &stream, d->name, &c);
 
-    if (stream.current_pos == pos_before)
-      exit_with_msg(s8printf(GLOBAL_A,
-                      "unknown instruction with name: %s at byte position: %d "
-                      "didn't consume any bytes.",
-                      c(d->name), stream.current_pos),
-        1);
+    if (stream.current_pos == pos_before) {
+      s8s msgs = { 0 };
+      *push(&s, &msgs) = s8printf(&s,
+        "instruction with name: %s at byte position: %d "
+        "didn't consume any bytes.",
+        c(d->name), stream.current_pos);
+      *push(&s, &msgs) = s8printf(&s, "-- current content:");
+      foreach(c, content, *push(&s, &msgs) = *c);
+      exit_with_msgs(msgs, 1);
+    }
   }
 
   write_strings_to_file(args.output_path, content);
@@ -98,11 +107,10 @@ int main(int argc, char** argv)
 {
   initialize_global_s8_arena(1 * MB);
   arena a = newarena(1 * GB);
-  arena scratch = newarena(1 * GB);
   Arguments args = get_cmd_line_arguments(&a, argc, argv);
 
   printf("Trying to decode:\n" BOLD "%s" OFF "\n", c(args.input_path));
-  decode(&a, scratch, args);
+  decode(a, args);
   printf("Successfully decoded to:\n%s\n\n", c(args.output_path));
 
   return 0;

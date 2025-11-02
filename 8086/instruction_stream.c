@@ -26,7 +26,7 @@ u8 pop(InstructionStream* stream)
   return stream->instructions.data[stream->current_pos - 1];
 }
 
-byte_slice next_slice(InstructionStream* stream, u32 n)
+byte_slice pop_n(InstructionStream* stream, u32 n)
 {
   if (stream->current_pos + n > stream->instructions.len) {
     exit_with_msg(
