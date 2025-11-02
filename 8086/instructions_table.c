@@ -18,7 +18,7 @@ deflist(Bits, BitsList);
 
 typedef struct {
     s8 name;
-    instruction_fn creator;
+    instruction_fn inst;
     BitsList bit_description;
     b8 unknown;
 } Decoder;
@@ -182,7 +182,7 @@ InstructionTable create_8086_instruction_table(arena s)
 
     ADD_OP(mov_reg_mem_to_from_reg, FIXED(6, 0b100010) VAR(2));
     /* ADD_OP(mov_im_to_reg_mem, FIXED(7, 0b1100011) VAR(1)); */
-    /* ADD_OP(mov_im_to_reg, FIXED(4, 0b1011) VAR(4)); */
+    ADD_OP(mov_im_to_reg, FIXED(4, 0b1011) VAR(4));
 
     return ret;
 }

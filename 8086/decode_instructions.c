@@ -76,11 +76,19 @@ void decode(arena* a, arena s, Arguments args)
     u8 index = peek(&stream);
     Decoder* d = &table.decoders[index];
     if (d->unknown)
-      exit_with_msg(s8printf(GLOBAL_A, "unknown instruction at byte position: %d :: %b",
+      exit_with_msg(
+        s8printf(GLOBAL_A, "unknown instruction at byte position: %d :: %b",
           stream.current_pos, index),
         1);
+    u32 pos_before = stream.current_pos;
+    *push(&s, &content) = d->inst(&s, &stream, d->name, &c);
 
-    *push(&s, &content) = d->creator(&s, &stream, d->name, &c);
+    if (stream.current_pos == pos_before)
+      exit_with_msg(s8printf(GLOBAL_A,
+                      "unknown instruction with name: %s at byte position: %d "
+                      "didn't consume any bytes.",
+                      c(d->name), stream.current_pos),
+        1);
   }
 
   write_strings_to_file(args.output_path, content);
@@ -92,7 +100,7 @@ int main(int argc, char** argv)
   arena a = newarena(1 * GB);
   arena scratch = newarena(1 * GB);
   Arguments args = get_cmd_line_arguments(&a, argc, argv);
-  
+
   printf("Trying to decode:\n" BOLD "%s" OFF "\n", c(args.input_path));
   decode(&a, scratch, args);
   printf("Successfully decoded to:\n%s\n\n", c(args.output_path));

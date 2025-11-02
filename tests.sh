@@ -10,12 +10,16 @@ process_file() {
     asm_file="$1"
     base_name="$2"
     asm_filename=$(basename $asm_file)
-    base_filename=$(basename $base_name) 
-    
+    base_filename=$(basename $base_name)
+    echo "----"
+    echo "starting: $script_dir/bin/decode_instructions -i $base_name -o /tmp/$asm_filename"
+    echo
     $script_dir/bin/decode_instructions -i $base_name -o /tmp/$asm_filename
 
     nasm /tmp/$asm_filename
     diff /tmp/$base_filename $base_name
+    echo "Success. No difference between listing binary and binary compiled from my asm."
+    echo
 }
 
 echo "Testing computer enhance listing ..."
