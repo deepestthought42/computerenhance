@@ -287,14 +287,10 @@ INST_FN(mov_im_to_reg)
   MemoryLocation r_reg
     = register_field_encoding(BRANGE(3, 1, byte1), W, computer);
   s8 ret = { 0 };
-  if (W)
-    ret = s8printf(a, "mov %s, %d", c(r_reg.location.name),
-      read_instruction_as_data(is, true), pos, is->current_pos);
-  else
-    ret = s8printf(a, "mov %s, %d", c(r_reg.location.name),
-      read_instruction_as_data(is, false), pos, is->current_pos);
+  i16 data = read_instruction_as_data(is, W);
+  
+  return s8printf(a, "mov %s, %d", c(r_reg.location.name), data);
 
-  return ret;
 }
 
 INST_FN(mov_im_to_reg_mem) { return s8(""); }
