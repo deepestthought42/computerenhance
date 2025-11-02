@@ -156,8 +156,8 @@ void create_effective_address_table(arena* a, Computer* computer)
     { R2(bp, di), R2D(bp, di, 0), R2D(bp, di, 0) },
     { R(si, 1), R1D(si, 0), R1D(si, 1) },
     { R(di, 1), R1D(di, 0), R1D(di, 1) },
-    { (MemoryLocation) {
-        .type = LOC_DIRECT, .effective = { .displacement_is_wide = true } },
+    { (MemoryLocation) { .type = LOC_DIRECT_ADDRESS,
+        .effective = { .displacement_is_wide = true } },
       R1D(bp, 0), R1D(bp, 1) },
     { R(bx, 1), R1D(bx, 0), R1D(bx, 1) },
   };
@@ -174,7 +174,7 @@ MemoryLocation effective_address_calculation(
   switch (loc.type) {
   case LOC_EFFECTIVE_ONE_W_DISP:
   case LOC_EFFECTIVE_TWO_W_DISP:
-  case LOC_DIRECT:
+  case LOC_DIRECT_ADDRESS:
     loc.effective.displacement_or_data
       = read_instruction_as_data(is, loc.effective.displacement_is_wide);
     break;
@@ -219,7 +219,7 @@ s8 print_memory_location(arena* a, MemoryLocation* loc)
   switch (loc->type) {
   case LOC_REGISTER:
     return loc->location.name;
-  case LOC_DIRECT:
+  case LOC_DIRECT_ADDRESS:
     return s8printf(a, "[%d]", loc->effective.displacement_or_data);
   case LOC_EFFECTIVE_TWO:
     return s8printf(a, "[%s + %s]", c(loc->effective.location1.name),
@@ -227,20 +227,20 @@ s8 print_memory_location(arena* a, MemoryLocation* loc)
   case LOC_EFFECTIVE_ONE_W_DISP:
     if (loc->effective.displacement_or_data != 0)
       return s8printf(a, "[%s %s %d]", c(loc->effective.location1.name),
-                      loc->effective.displacement_or_data < 0 ? "-" : "+",
-                      abs(loc->effective.displacement_or_data));
+        loc->effective.displacement_or_data < 0 ? "-" : "+",
+        abs(loc->effective.displacement_or_data));
     else
       return s8printf(a, "[%s]", c(loc->effective.location1.name));
 
   case LOC_EFFECTIVE_TWO_W_DISP:
     if (loc->effective.displacement_or_data != 0)
       return s8printf(a, "[%s + %s %s %d]", c(loc->effective.location1.name),
-                      c(loc->effective.location2.name),
-                      loc->effective.displacement_or_data < 0 ? "-" : "+",
-                      abs(loc->effective.displacement_or_data));
+        c(loc->effective.location2.name),
+        loc->effective.displacement_or_data < 0 ? "-" : "+",
+        abs(loc->effective.displacement_or_data));
     else
       return s8printf(a, "[%s + %s]", c(loc->effective.location1.name),
-                      c(loc->effective.location2.name));
+        c(loc->effective.location2.name));
   }
 }
 
@@ -258,22 +258,22 @@ INST_FN(mov_reg_mem_to_from_reg)
   u8 mod = BRANGE(8, 7, byte2);
   u8 reg = BRANGE(6, 4, byte2);
   u8 r_m = BRANGE(3, 1, byte2);
-  MemoryLocation src, dest;
+  MemoryLocation src, dst;
 
   if (mod == 0b11) {
     MemoryLocation r_reg = register_field_encoding(reg, W, computer);
     MemoryLocation r_r_m = register_field_encoding(r_m, W, computer);
 
-    dest = reg_is_destination ? r_reg : r_r_m;
+    dst = reg_is_destination ? r_reg : r_r_m;
     src = reg_is_destination ? r_r_m : r_reg;
   } else {
     MemoryLocation r_reg = register_field_encoding(reg, W, computer);
     MemoryLocation eff = effective_address_calculation(r_m, mod, is, computer);
-    dest = reg_is_destination ? r_reg : eff;
+    dst = reg_is_destination ? r_reg : eff;
     src = reg_is_destination ? eff : r_reg;
   }
 
-  return s8printf(a, "mov %s, %s", c(print_memory_location(a, &dest)),
+  return s8printf(a, "mov %s, %s", c(print_memory_location(a, &dst)),
     c(print_memory_location(a, &src)));
 }
 
@@ -288,16 +288,38 @@ INST_FN(mov_im_to_reg)
     = register_field_encoding(BRANGE(3, 1, byte1), W, computer);
   s8 ret = { 0 };
   i16 data = read_instruction_as_data(is, W);
-  
-  return s8printf(a, "mov %s, %d", c(r_reg.location.name), data);
 
+  return s8printf(a, "mov %s, %d", c(r_reg.location.name), data);
 }
 
-INST_FN(mov_im_to_reg_mem) { return s8(""); }
+INST_FN(mov_im_to_reg_mem)
+{
+  u8 byte1 = pop(is);
+  u8 byte2 = pop(is);
 
-INST_FN(mov_mem_to_acc) { return s8(""); }
+  b8 W = BIT(1, byte1);
 
-INST_FN(mov_acc_to_mem) { return s8(""); }
+  u8 mod = BRANGE(8, 7, byte2);
+  u8 r_m = BRANGE(3, 1, byte2);
+
+  MemoryLocation dst = effective_address_calculation(r_m, mod, is, computer);
+  i16 data = read_instruction_as_data(is, W);
+  return s8printf(a, "mov %s, %s %d", c(print_memory_location(a, &dst)),
+    W ? "word" : "byte", data);
+}
+
+INST_FN(mov_mem_to_acc)
+{
+  b8 W = BIT(1, pop(is));
+  return s8printf(a, "mov ax, [%d]", read_instruction_as_data(is, W));
+}
+
+INST_FN(mov_acc_to_mem)
+{
+  b8 W = BIT(1, pop(is));
+  return s8printf(a, "mov [%d], ax", read_instruction_as_data(is, W));
+}
+
 
 InstructionTable create_8086_instruction_table(arena s)
 {
@@ -310,8 +332,10 @@ InstructionTable create_8086_instruction_table(arena s)
   // move
 
   ADD_OP(mov_reg_mem_to_from_reg, FIXED(6, 0b100010) VAR(2));
-  /* ADD_OP(mov_im_to_reg_mem, FIXED(7, 0b1100011) VAR(1)); */
+  ADD_OP(mov_im_to_reg_mem, FIXED(7, 0b1100011) VAR(1));
   ADD_OP(mov_im_to_reg, FIXED(4, 0b1011) VAR(4));
+  ADD_OP(mov_mem_to_acc, FIXED(7, 0b1010000) VAR(1));
+  ADD_OP(mov_acc_to_mem, FIXED(7, 0b1010001) VAR(1));
 
   return ret;
 }

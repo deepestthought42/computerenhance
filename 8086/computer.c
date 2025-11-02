@@ -36,7 +36,7 @@ typedef enum LocationType {
   LOC_EFFECTIVE_TWO = 1,
   LOC_EFFECTIVE_ONE_W_DISP = 2,
   LOC_EFFECTIVE_TWO_W_DISP = 3,
-  LOC_DIRECT = 4
+  LOC_DIRECT_ADDRESS = 4
 } LocationType;
 
 typedef struct {
