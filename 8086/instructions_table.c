@@ -74,7 +74,10 @@ void add_indices_for_decoder(arena s, Decoder d, InstructionTable* table)
 
   foreach(index, new_indices, {
     if (!table->decoders[index->index].unknown)
-      exit_with_msgs(make_s8_array(&s, d.name), 1);
+      exit_with_msg(
+        s8printf(&s, "Index: %d (0b%s) has already been assigned to: %s",
+          index->index, c(print_bits(&s, index->index, 8)), c(d.name)),
+        1);
 
     table->decoders[index->index] = index->decoder;
   });
@@ -320,6 +323,13 @@ INST_FN(mov_acc_to_mem)
   return s8printf(a, "mov [%d], ax", read_instruction_as_data(is, W));
 }
 
+INST_FN(add_reg_mem_w_reg_to_either) { return s8(""); }
+INST_FN(add_im_to_reg_mem) { return s8(""); }
+
+INST_FN(add_im_to_acc) {
+    b8 W = BIT(1, pop(is));
+    return s8printf(a, "add ax, [%d]", read_instruction_as_data(is, W));
+}
 
 InstructionTable create_8086_instruction_table(arena s)
 {
@@ -336,6 +346,10 @@ InstructionTable create_8086_instruction_table(arena s)
   ADD_OP(mov_im_to_reg, FIXED(4, 0b1011) VAR(4));
   ADD_OP(mov_mem_to_acc, FIXED(7, 0b1010000) VAR(1));
   ADD_OP(mov_acc_to_mem, FIXED(7, 0b1010001) VAR(1));
+  
+  ADD_OP(add_reg_mem_w_reg_to_either, FIXED(6, 0b000000) VAR(2));
+  ADD_OP(add_im_to_reg_mem, FIXED(6, 0b100000) VAR(2));
+  ADD_OP(add_im_to_acc, FIXED(6, 0b0000010) VAR(2));
 
   return ret;
 }
