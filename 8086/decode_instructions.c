@@ -18,7 +18,13 @@ typedef struct {
 Arguments get_cmd_line_arguments(arena* a, int argc, char** argv)
 {
   struct optparse_long longopts[] = { { "input", 'i', OPTPARSE_REQUIRED },
-    { "output", 'o', OPTPARSE_REQUIRED }, { 0 } };
+    { "output", 'o', OPTPARSE_REQUIRED },
+    {
+      "trap_on_error",
+      't',
+      OPTPARSE_OPTIONAL
+    },
+    { 0 } };
 
   Arguments retval = { 0 };
   char* arg;
@@ -35,7 +41,9 @@ Arguments get_cmd_line_arguments(arena* a, int argc, char** argv)
     case 'o':
       retval.output_path = s8copy(a, s(options.optarg));
       break;
-
+    case 't':
+      __trap_on_error = true;
+      break;
     case '?':
       fprintf(stderr, "%s: %s\n", argv[0], options.errmsg);
       exit(EXIT_FAILURE);
@@ -58,7 +66,7 @@ Arguments get_cmd_line_arguments(arena* a, int argc, char** argv)
   return retval;
 }
 
-void decode(arena s, Arguments args)
+void decode_to_file(arena s, Arguments args)
 {
   file file = s8slurp_file(&s, args.input_path);
   if (file.status != file_OK)
@@ -79,14 +87,28 @@ void decode(arena s, Arguments args)
     if (d->unknown) {
       s8s msgs = { 0 };
       *push(&s, &msgs)
-        = s8printf(&s, "unknown instruction at byte position: %d :: %b",
-          stream.current_pos, index);
+        = s8printf(&s, "unknown instruction at byte position: %d :: %s",
+                   stream.current_pos, c(print_bits(&s, index, 8)));
       *push(&s, &msgs) = s8printf(&s, "-- current content:");
       foreach(c, content, *push(&s, &msgs) = *c);
       exit_with_msgs(msgs, 1);
     }
     u32 pos_before = stream.current_pos;
-    *push(&s, &content) = d->inst(&s, &stream, d->name, &c);
+    InstRes res = d->inst(d->asm_inst, &s, &stream, d->name, &c);
+    if (res.status != INST_OK) {
+      s8s msgs = { 0 };
+      *push(&s, &msgs)
+        = s8printf(&s, "Error from instruction: %s at byte position: %d",
+          c(d->name), stream.current_pos);
+      *push(&s, &msgs) = res.error_msg;
+
+      *push(&s, &msgs) = s8printf(&s, "-- current content:");
+      foreach(c, content, *push(&s, &msgs) = *c);
+      exit_with_msgs(msgs, 1);
+    }
+
+
+    *push(&s, &content) = res.v;
 
     if (stream.current_pos == pos_before) {
       s8s msgs = { 0 };
@@ -110,7 +132,7 @@ int main(int argc, char** argv)
   Arguments args = get_cmd_line_arguments(&a, argc, argv);
 
   printf("Trying to decode:\n" BOLD "%s" OFF "\n", c(args.input_path));
-  decode(a, args);
+  decode_to_file(a, args);
   printf("Successfully decoded to:\n%s\n\n", c(args.output_path));
 
   return 0;

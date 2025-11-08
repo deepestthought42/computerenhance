@@ -264,3 +264,35 @@ int main() {
 #+end_src
 
 #+RESULTS:
+** sign extension stuff
+#+begin_src C :includes <stdio.h> :results output
+
+typedef char i8;
+typedef unsigned char u8;
+
+void print_bits(i8 num, i8 bits) {
+    for (int i = bits - 1; i >= 0; i--) {
+        putchar((num & (1 << i)) ? '1' : '0');
+    }
+    putchar('\n');
+}
+
+
+
+print_bits(((i8)-100), 8);
+
+
+#+end_src
+
+#+RESULTS:
+: 10011100
+** , expr
+#+begin_src C
+
+int test(int a) {
+  return a > 0 ? {return -1;},0) : 10; 
+}
+
+#+end_src
+
+#+RESULTS:

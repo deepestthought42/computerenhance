@@ -1,13 +1,19 @@
 #pragma once
 #include "../cutils/dynamic.c"
+#include "../cutils/error.c"
 #include "../cutils/s8.c"
 #include "../cutils/types.c"
 #include "computer.c"
 #include "instruction_stream.c"
 #include "utils.c"
 
+RESULT(s8, InstRes, INST_OK, INST_ERROR, INST_DATA_ERROR, INST_SRC_DATA_ERROR,
+  INST_LOC_ERROR, INST_REG_FIELD_ERROR);
+
 typedef s8 str;
-typedef str (*instruction_fn)(arena*, InstructionStream*, s8, Computer*);
+
+typedef InstRes (*instruction_fn)(
+  s8, arena*, InstructionStream*, s8, Computer*);
 
 typedef struct {
   u8 no_bits;
@@ -21,6 +27,7 @@ typedef struct {
   instruction_fn inst;
   BitsList bit_description;
   b8 unknown;
+  s8 asm_inst;
 } Decoder;
 deflist(Decoder, Decoders);
 
@@ -92,8 +99,9 @@ u8 cover_masks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
   (((value) & cover_masks[(higher_bit)] & ~cover_masks[(lower_bit) - 1])       \
     >> ((lower_bit) - 1))
 
-#define ADD_OP(inst_fn, bit_descriptions)                                      \
-  current_decoder = (Decoder) { s(#inst_fn), &(inst_fn) };                     \
+#define ADD_OP(inst, inst_fn, bit_descriptions)                                \
+  current_decoder                                                              \
+    = (Decoder) { s(#inst_fn), &(inst_fn), .asm_inst = s(#inst) };             \
   bit_descriptions;                                                            \
   add_indices_for_decoder(s, current_decoder, &ret)
 
@@ -108,6 +116,16 @@ u8 cover_masks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
   (MemoryLocation)                                                             \
   {                                                                            \
     .type = LOC_REGISTER, .location = {                                        \
+      s(#reg),                                                                 \
+      (u8*)(&computer->registers.reg),                                         \
+      (wide),                                                                  \
+    }                                                                          \
+  }
+
+#define RE(reg, wide)                                                          \
+  (MemoryLocation)                                                             \
+  {                                                                            \
+    .type = LOC_EFFECTIVE_ONE, .location = {                                   \
       s(#reg),                                                                 \
       (u8*)(&computer->registers.reg),                                         \
       (wide),                                                                  \
@@ -142,76 +160,103 @@ u8 cover_masks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
           .location2 = { s(#reg2), (u8*)(&computer->registers.reg2) } }        \
   }
 
-i16 read_instruction_as_data(InstructionStream* is, b8 is_wide)
+RESULT(i16, ReadDataRes, DATA_OK, DATA_ERROR);
+
+ReadDataRes read_data_from_instruction(
+  InstructionStream* is, b8 read_two_bytes, b8 sign_extension)
 {
-  if (is_wide)
-    return *((i16*)(pop_n(is, 2).data));
-  else
-    return (i16)((i8)(pop(is)));
+  /* printf("Reading %d byte(s) of data from stream %s sign extension.\n", */
+  /*   read_two_bytes ? 2 : 1, sign_extension ? "w/" : "w/o"); */
+
+  if (!read_two_bytes) {
+    return OK_ReadDataRes((i16)((i8)(pop(is))));
+  } else if (read_two_bytes && !sign_extension) {
+    return OK_ReadDataRes(*((i16*)(pop_n(is, 2).data)));
+  } else {
+    return ERR_ReadDataRes(DATA_ERROR,
+      s("reading two bytes with sign extension does not make sense."));
+  }
 }
 
 void create_effective_address_table(arena* a, Computer* computer)
 {
   MemoryLocation _locs[8][3] = {
     { R2(bx, si), R2D(bx, si, 0), R2D(bx, si, 1) },
-    { R2(bx, di), R2D(bx, di, 0), R2D(bx, di, 0) },
-    { R2(bp, si), R2D(bp, si, 0), R2D(bp, si, 0) },
-    { R2(bp, di), R2D(bp, di, 0), R2D(bp, di, 0) },
-    { R(si, 1), R1D(si, 0), R1D(si, 1) },
-    { R(di, 1), R1D(di, 0), R1D(di, 1) },
+    { R2(bx, di), R2D(bx, di, 0), R2D(bx, di, 1) },
+    { R2(bp, si), R2D(bp, si, 0), R2D(bp, si, 1) },
+    { R2(bp, di), R2D(bp, di, 0), R2D(bp, di, 1) },
+    { RE(si, 1), R1D(si, 0), R1D(si, 1) },
+    { RE(di, 1), R1D(di, 0), R1D(di, 1) },
     { (MemoryLocation) { .type = LOC_DIRECT_ADDRESS,
         .effective = { .displacement_is_wide = true } },
       R1D(bp, 0), R1D(bp, 1) },
-    { R(bx, 1), R1D(bx, 0), R1D(bx, 1) },
+    { RE(bx, 1), R1D(bx, 0), R1D(bx, 1) },
   };
 
   memcpy(
     computer->effective_address_table, _locs, 8 * 3 * sizeof(MemoryLocation));
 }
 
-MemoryLocation effective_address_calculation(
+RESULT(MemoryLocation, MemLocRes, MEMLOC_OK, MEMLOC_ERR,
+  MEM_LOC_UNKNOWN_FIELD_ENCODING);
+
+MemLocRes effective_address_calculation(
   u8 r_m, u8 mod, InstructionStream* is, Computer* computer)
 {
 
   MemoryLocation loc = computer->effective_address_table[r_m][mod];
   switch (loc.type) {
+  case LOC_REGISTER:
+    return ERR_MemLocRes(MEMLOC_ERR,
+      s("LOC_REGISTER not a valid type when calculating effective address."));
+  case LOC_EFFECTIVE_TWO:
+  case LOC_EFFECTIVE_ONE:
+    // no need to read data
+    break;
   case LOC_EFFECTIVE_ONE_W_DISP:
   case LOC_EFFECTIVE_TWO_W_DISP:
-  case LOC_DIRECT_ADDRESS:
-    loc.effective.displacement_or_data
-      = read_instruction_as_data(is, loc.effective.displacement_is_wide);
-    break;
-  default:
+  case LOC_DIRECT_ADDRESS: {
+    /* printf("Reading %d byte(s) of displacement from stream.\n", */
+    /*   loc.effective.displacement_is_wide ? 2 : 1); */
+
+    ReadDataRes rd = read_data_from_instruction(
+      is, loc.effective.displacement_is_wide, false);
+    if (rd.status == MEMLOC_OK)
+      loc.effective.displacement_or_data = rd.v;
+    else
+      return ERR_MemLocRes(MEMLOC_ERR, rd.error_msg);
     break;
   }
-  return loc;
+  }
+  return OK_MemLocRes(loc);
 }
 
-MemoryLocation register_field_encoding(u8 reg, b8 w, Computer* computer)
+MemLocRes register_field_encoding(u8 reg, b8 w, Computer* computer)
 {
   w = !w; // this way the "table" below corresponds to table 4-9 in the 8086
           // instruction manual
 
   switch (reg) {
   case 0b000:
-    return w ? R(al, false) : R(ax, true);
+    return OK_MemLocRes(w ? R(al, false) : R(ax, true));
   case 0b001:
-    return w ? R(cl, false) : R(cx, true);
+    return OK_MemLocRes(w ? R(cl, false) : R(cx, true));
   case 0b010:
-    return w ? R(dl, false) : R(dx, true);
+    return OK_MemLocRes(w ? R(dl, false) : R(dx, true));
   case 0b011:
-    return w ? R(bl, false) : R(bx, true);
+    return OK_MemLocRes(w ? R(bl, false) : R(bx, true));
   case 0b100:
-    return w ? R(ah, false) : R(sp, true);
+    return OK_MemLocRes(w ? R(ah, false) : R(sp, true));
   case 0b101:
-    return w ? R(ch, false) : R(bp, true);
+    return OK_MemLocRes(w ? R(ch, false) : R(bp, true));
   case 0b110:
-    return w ? R(dh, false) : R(si, true);
+    return OK_MemLocRes(w ? R(dh, false) : R(si, true));
   case 0b111:
-    return w ? R(bh, false) : R(di, true);
+    return OK_MemLocRes(w ? R(bh, false) : R(di, true));
   default:
-    exit_with_msg(s("REG is unparsable."), 1);
-    return (MemoryLocation) { 0 };
+    return ERR_MemLocRes(MEM_LOC_UNKNOWN_FIELD_ENCODING,
+      s8printf(GLOBAL_A, "Unknown field register field encoding: %s",
+        print_bits(GLOBAL_A, reg, 3)));
   }
 }
 #undef R
@@ -222,6 +267,8 @@ s8 print_memory_location(arena* a, MemoryLocation* loc)
   switch (loc->type) {
   case LOC_REGISTER:
     return loc->location.name;
+  case LOC_EFFECTIVE_ONE:
+    return s8printf(a, "[%s]", loc->location.name);
   case LOC_DIRECT_ADDRESS:
     return s8printf(a, "[%d]", loc->effective.displacement_or_data);
   case LOC_EFFECTIVE_TWO:
@@ -247,55 +294,95 @@ s8 print_memory_location(arena* a, MemoryLocation* loc)
   }
 }
 
-#define INST_FN(name)                                                          \
-  s8 name(arena* a, InstructionStream* is, s8 desc, Computer* computer)
+typedef struct {
+  MemoryLocation src;
+  MemoryLocation dst;
+} SrcAndDst;
 
-INST_FN(mov_reg_mem_to_from_reg)
+RESULT(SrcAndDst, SrcAndDstRes, SRC_DST_OK, SRC_DST_ERR);
+
+SrcAndDstRes src_dst_for_reg_mem_to_from_either(
+  Computer* computer, InstructionStream* is, u8 byte1, u8 byte2)
 {
-  u8 byte1 = pop(is);
-  u8 byte2 = pop(is);
-
-  u8 W = BIT(1, byte1);
-  u8 reg_is_destination = BIT(2, byte1);
 
   u8 mod = BRANGE(8, 7, byte2);
   u8 reg = BRANGE(6, 4, byte2);
   u8 r_m = BRANGE(3, 1, byte2);
-  MemoryLocation src, dst;
 
-  if (mod == 0b11) {
-    MemoryLocation r_reg = register_field_encoding(reg, W, computer);
-    MemoryLocation r_r_m = register_field_encoding(r_m, W, computer);
+  b8 D = BIT(2, byte1);
+  b8 W = BIT(1, byte1);
 
-    dst = reg_is_destination ? r_reg : r_r_m;
-    src = reg_is_destination ? r_r_m : r_reg;
-  } else {
-    MemoryLocation r_reg = register_field_encoding(reg, W, computer);
-    MemoryLocation eff = effective_address_calculation(r_m, mod, is, computer);
-    dst = reg_is_destination ? r_reg : eff;
-    src = reg_is_destination ? eff : r_reg;
+#define CHECK(var)                                                             \
+  if ((var).status != MEMLOC_OK) {                                             \
+    return ERR_SrcAndDstRes(SRC_DST_ERR, (var).error_msg);                     \
   }
 
-  return s8printf(a, "mov %s, %s", c(print_memory_location(a, &dst)),
-    c(print_memory_location(a, &src)));
+  SrcAndDst ret = { 0 };
+  if (mod == 0b11) {
+    MemLocRes r_reg = register_field_encoding(reg, W, computer);
+    CHECK(r_reg);
+    MemLocRes r_r_m = register_field_encoding(r_m, W, computer);
+    CHECK(r_r_m);
+
+    ret.dst = D ? r_reg.v : r_r_m.v;
+    ret.src = D ? r_r_m.v : r_reg.v;
+  } else {
+    MemLocRes r_reg = register_field_encoding(reg, W, computer);
+    CHECK(r_reg);
+    MemLocRes eff = effective_address_calculation(r_m, mod, is, computer);
+    CHECK(eff);
+    ret.dst = D ? r_reg.v : eff.v;
+    ret.src = D ? eff.v : r_reg.v;
+  }
+
+  return OK_SrcAndDstRes(ret);
+#undef CHECK
 }
 
-INST_FN(mov_im_to_reg)
+#define INST_FN(name)                                                          \
+  InstRes name(                                                                \
+    s8 asm_inst, arena* a, InstructionStream* is, s8 desc, Computer* computer)
+
+#define INST_OK(s)                                                             \
+  (InstRes) { INST_OK, (s) }
+
+INST_FN(reg_mem_to_from_reg)
+{
+  u8 byte1 = pop(is);
+  u8 byte2 = pop(is);
+
+  SrcAndDstRes sd
+    = src_dst_for_reg_mem_to_from_either(computer, is, byte1, byte2);
+  if (sd.status != SRC_DST_OK)
+    return ERR_InstRes(INST_LOC_ERROR, sd.error_msg);
+
+  return INST_OK(s8printf(a, "%s %s, %s", c(asm_inst),
+    c(print_memory_location(a, &sd.v.dst)),
+    c(print_memory_location(a, &sd.v.src))));
+}
+
+INST_FN(im_to_reg)
 {
   u32 pos = is->current_pos;
 
   u8 byte1 = pop(is);
   b8 W = BIT(4, byte1);
 
-  MemoryLocation r_reg
-    = register_field_encoding(BRANGE(3, 1, byte1), W, computer);
-  s8 ret = { 0 };
-  i16 data = read_instruction_as_data(is, W);
+  MemLocRes r_reg = register_field_encoding(BRANGE(3, 1, byte1), W, computer);
+  if (r_reg.status != MEMLOC_OK)
+    return ERR_InstRes(INST_REG_FIELD_ERROR, r_reg.error_msg);
 
-  return s8printf(a, "mov %s, %d", c(r_reg.location.name), data);
+  s8 ret = { 0 };
+
+  ReadDataRes data = read_data_from_instruction(is, W, false);
+  if (data.status != DATA_OK)
+    return ERR_InstRes(INST_DATA_ERROR, r_reg.error_msg);
+
+  return INST_OK(
+    s8printf(a, "%s %s, %d", c(asm_inst), c(r_reg.v.location.name), data.v));
 }
 
-INST_FN(mov_im_to_reg_mem)
+INST_FN(im_to_reg_mem)
 {
   u8 byte1 = pop(is);
   u8 byte2 = pop(is);
@@ -305,30 +392,144 @@ INST_FN(mov_im_to_reg_mem)
   u8 mod = BRANGE(8, 7, byte2);
   u8 r_m = BRANGE(3, 1, byte2);
 
-  MemoryLocation dst = effective_address_calculation(r_m, mod, is, computer);
-  i16 data = read_instruction_as_data(is, W);
-  return s8printf(a, "mov %s, %s %d", c(print_memory_location(a, &dst)),
-    W ? "word" : "byte", data);
+  MemLocRes dst = effective_address_calculation(r_m, mod, is, computer);
+  if (dst.status != MEMLOC_OK)
+    return ERR_InstRes(INST_LOC_ERROR, dst.error_msg);
+
+  ReadDataRes data = read_data_from_instruction(is, W, false);
+  if (data.status != DATA_OK)
+    return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
+
+  return INST_OK(s8printf(a, "%s %s, %s %d", c(asm_inst),
+    c(print_memory_location(a, &dst.v)), W ? "word" : "byte", data.v));
 }
 
-INST_FN(mov_mem_to_acc)
+INST_FN(mem_to_acc)
 {
   b8 W = BIT(1, pop(is));
-  return s8printf(a, "mov ax, [%d]", read_instruction_as_data(is, W));
+  ReadDataRes data = read_data_from_instruction(is, W, false);
+  if (data.status != DATA_OK)
+    return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
+
+  return INST_OK(s8printf(a, "%s ax, [%d]", c(asm_inst), data.v));
 }
 
-INST_FN(mov_acc_to_mem)
+INST_FN(acc_to_mem)
 {
   b8 W = BIT(1, pop(is));
-  return s8printf(a, "mov [%d], ax", read_instruction_as_data(is, W));
+  ReadDataRes data = read_data_from_instruction(is, W, false);
+  if (data.status != DATA_OK)
+    return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
+
+  return INST_OK(s8printf(a, "%s [%d], ax", c(asm_inst), data.v));
 }
 
-INST_FN(add_reg_mem_w_reg_to_either) { return s8(""); }
-INST_FN(add_im_to_reg_mem) { return s8(""); }
+INST_FN(reg_mem_w_reg_to_either)
+{
+  u8 byte1 = pop(is);
+  u8 byte2 = pop(is);
 
-INST_FN(add_im_to_acc) {
-    b8 W = BIT(1, pop(is));
-    return s8printf(a, "add ax, [%d]", read_instruction_as_data(is, W));
+  SrcAndDstRes sd
+    = src_dst_for_reg_mem_to_from_either(computer, is, byte1, byte2);
+  if (sd.status != SRC_DST_OK)
+    return ERR_InstRes(INST_SRC_DATA_ERROR, sd.error_msg);
+
+  return INST_OK(s8printf(a, "%s %s, %s", c(asm_inst),
+    c(print_memory_location(a, &sd.v.dst)),
+    c(print_memory_location(a, &sd.v.src))));
+}
+
+typedef struct {
+  MemoryLocation dst;
+  b8 read_two_bytes;
+  b8 sign_extended;
+  s8 description;
+} ImmediateToLoc;
+
+RESULT(ImmediateToLoc, ImmediateToLocRes, IMTOLOC_OK,
+  IMTOLOC_FIELD_ENCODING_ERR, IMTOLOC_EFFECTIVE_ADDR_ERR);
+
+ImmediateToLocRes dst_for_im_to_reg_mem_with_s(arena* a,
+
+  Computer* computer, InstructionStream* is, u8 byte1, u8 byte2)
+{
+  ImmediateToLoc ret = { 0 };
+  b8 W = BIT(1, byte1);
+  b8 S = BIT(2, byte1);
+  u8 mod = BRANGE(8, 7, byte2);
+  u8 reg = BRANGE(6, 4, byte2);
+  u8 r_m = BRANGE(3, 1, byte2);
+
+  ret.read_two_bytes = W && !S;
+  ret.sign_extended = S;
+  MemLocRes loc;
+  if (mod == 0b11) {
+    loc = register_field_encoding(r_m, W, computer);
+    if (loc.status != MEMLOC_OK)
+      return ERR_ImmediateToLocRes(IMTOLOC_FIELD_ENCODING_ERR, loc.error_msg);
+    ret.dst = loc.v;
+  } else {
+    loc = effective_address_calculation(r_m, mod, is, computer);
+    if (loc.status != MEMLOC_OK)
+      return ERR_ImmediateToLocRes(IMTOLOC_EFFECTIVE_ADDR_ERR, loc.error_msg);
+    ret.dst = loc.v;
+  }
+
+  ret.description = s8printf(a, "%s|%s .. W=%d, S=%d, mod=%s, reg=%s, r_m=%s",
+    c(print_bits(a, byte1, 8)), c(print_bits(a, byte2, 8)), W, S,
+    c(print_bits(a, mod, 2)), c(print_bits(a, reg, 3)),
+    c(print_bits(a, r_m, 3)));
+
+  return OK_ImmediateToLocRes(ret);
+}
+
+INST_FN(x_im_to_reg_mem)
+{
+  u8 byte1 = pop(is);
+  u8 byte2 = pop(is);
+  ImmediateToLocRes loc
+    = dst_for_im_to_reg_mem_with_s(a, computer, is, byte1, byte2);
+
+  if (loc.status != IMTOLOC_OK)
+    return ERR_InstRes(INST_LOC_ERROR, loc.error_msg);
+
+  ReadDataRes read_data
+    = read_data_from_instruction(is, loc.v.read_two_bytes, loc.v.sign_extended);
+
+  if (read_data.status == DATA_OK)
+    return OK_InstRes(s8printf(a, "%s %s %s, %d", c(asm_inst),
+      loc.v.read_two_bytes || loc.v.sign_extended ? "word" : "byte",
+      c(print_memory_location(a, &loc.v.dst)), read_data.v));
+  else
+    return ERR_InstRes(INST_DATA_ERROR, read_data.error_msg);
+}
+
+INST_FN(im_from_acc)
+{
+  b8 W = BIT(1, pop(is));
+  ReadDataRes data = read_data_from_instruction(is, W, false);
+  if (data.status != DATA_OK)
+    return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
+
+  return OK_InstRes(s8printf(a, "%s ax, %d", c(asm_inst), data.v));
+}
+
+INST_FN(im_to_reg_mem_op_in_byte2)
+{
+  u8 byte2 = peek_by_n(is, 1);
+  u8 reg = BRANGE(6, 4, byte2);
+  switch (reg) {
+  case 0b000:
+    return x_im_to_reg_mem(s("add"), a, is, desc, computer);
+  case 0b101:
+    return x_im_to_reg_mem(s("sub"), a, is, desc, computer);
+  case 0b111:
+    return x_im_to_reg_mem(s("cmp"), a, is, desc, computer);
+
+  default:
+    return ERR_InstRes(INST_REG_FIELD_ERROR,
+      s8printf(a, "Cannot decide based on reg: %s.", print_bits(a, reg, 3)));
+  }
 }
 
 InstructionTable create_8086_instruction_table(arena s)
@@ -341,18 +542,26 @@ InstructionTable create_8086_instruction_table(arena s)
 
   // move
 
-  ADD_OP(mov_reg_mem_to_from_reg, FIXED(6, 0b100010) VAR(2));
-  ADD_OP(mov_im_to_reg_mem, FIXED(7, 0b1100011) VAR(1));
-  ADD_OP(mov_im_to_reg, FIXED(4, 0b1011) VAR(4));
-  ADD_OP(mov_mem_to_acc, FIXED(7, 0b1010000) VAR(1));
-  ADD_OP(mov_acc_to_mem, FIXED(7, 0b1010001) VAR(1));
-  
-  ADD_OP(add_reg_mem_w_reg_to_either, FIXED(6, 0b000000) VAR(2));
-  ADD_OP(add_im_to_reg_mem, FIXED(6, 0b100000) VAR(2));
-  ADD_OP(add_im_to_acc, FIXED(6, 0b0000010) VAR(2));
+  ADD_OP(mov, reg_mem_to_from_reg, FIXED(6, 0b100010) VAR(2));
+  ADD_OP(mov, im_to_reg_mem, FIXED(7, 0b1100011) VAR(1));
+  ADD_OP(mov, im_to_reg, FIXED(4, 0b1011) VAR(4));
+  ADD_OP(mov, mem_to_acc, FIXED(7, 0b1010000) VAR(1));
+  ADD_OP(mov, acc_to_mem, FIXED(7, 0b1010001) VAR(1));
+
+  ADD_OP(add, reg_mem_w_reg_to_either, FIXED(6, 0b000000) VAR(2));
+  ADD_OP(add, im_from_acc, FIXED(7, 0b0000010) VAR(1));
+
+  ADD_OP(sub, reg_mem_w_reg_to_either, FIXED(6, 0b001010) VAR(2));
+  ADD_OP(sub, im_from_acc, FIXED(7, 0b0010110) VAR(1));
+
+  ADD_OP(cmp, reg_mem_w_reg_to_either, FIXED(6, 0b001110) VAR(2));
+  ADD_OP(cmp, im_from_acc, FIXED(7, 0b0011110) VAR(1));
+
+  ADD_OP(_, im_to_reg_mem_op_in_byte2, FIXED(6, 0b100000) VAR(2));
 
   return ret;
 }
+
 #undef ADD_OP
 #undef FIXED
 #undef VAR
