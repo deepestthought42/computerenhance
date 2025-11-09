@@ -108,7 +108,7 @@ void decode_to_file(arena s, Arguments args)
     }
 
 
-    *push(&s, &content) = res.v;
+    *push(&s, &content) = res.v.line;
 
     if (stream.current_pos == pos_before) {
       s8s msgs = { 0 };

@@ -7,8 +7,13 @@
 #include "instruction_stream.c"
 #include "utils.c"
 
-RESULT(s8, InstRes, INST_OK, INST_ERROR, INST_DATA_ERROR, INST_SRC_DATA_ERROR,
-  INST_LOC_ERROR, INST_REG_FIELD_ERROR);
+typedef struct {
+  s8 line;
+  u32 position_in_stream;
+} AsmInst;
+
+RESULT(AsmInst, InstRes, INST_OK, INST_ERROR, INST_DATA_ERROR,
+  INST_SRC_DATA_ERROR, INST_LOC_ERROR, INST_REG_FIELD_ERROR);
 
 typedef s8 str;
 
@@ -338,16 +343,23 @@ SrcAndDstRes src_dst_for_reg_mem_to_from_either(
   return OK_SrcAndDstRes(ret);
 #undef CHECK
 }
+#define RECORD_STARTPOS() u32 _startpos = is->current_pos;
 
-#define INST_FN(name)                                                          \
+#define INST_FN(name, body)                                                    \
   InstRes name(                                                                \
-    s8 asm_inst, arena* a, InstructionStream* is, s8 desc, Computer* computer)
+    s8 asm_inst, arena* a, InstructionStream* is, s8 desc, Computer* computer) \
+  {                                                                            \
+    RECORD_STARTPOS();                                                         \
+    body;                                                                      \
+  }
 
 #define INST_OK(s)                                                             \
-  (InstRes) { INST_OK, (s) }
+  (InstRes)                                                                    \
+  {                                                                            \
+    INST_OK, { (s), _startpos }                                                \
+  }
 
-INST_FN(reg_mem_to_from_reg)
-{
+INST_FN(reg_mem_to_from_reg, {
   u8 byte1 = pop(is);
   u8 byte2 = pop(is);
 
@@ -359,10 +371,9 @@ INST_FN(reg_mem_to_from_reg)
   return INST_OK(s8printf(a, "%s %s, %s", c(asm_inst),
     c(print_memory_location(a, &sd.v.dst)),
     c(print_memory_location(a, &sd.v.src))));
-}
+})
 
-INST_FN(im_to_reg)
-{
+INST_FN(im_to_reg, {
   u32 pos = is->current_pos;
 
   u8 byte1 = pop(is);
@@ -380,10 +391,9 @@ INST_FN(im_to_reg)
 
   return INST_OK(
     s8printf(a, "%s %s, %d", c(asm_inst), c(r_reg.v.location.name), data.v));
-}
+})
 
-INST_FN(im_to_reg_mem)
-{
+INST_FN(im_to_reg_mem, {
   u8 byte1 = pop(is);
   u8 byte2 = pop(is);
 
@@ -402,30 +412,29 @@ INST_FN(im_to_reg_mem)
 
   return INST_OK(s8printf(a, "%s %s, %s %d", c(asm_inst),
     c(print_memory_location(a, &dst.v)), W ? "word" : "byte", data.v));
-}
+})
 
-INST_FN(mem_to_acc)
-{
+INST_FN(mem_to_acc, {
+  RECORD_STARTPOS();
+
   b8 W = BIT(1, pop(is));
   ReadDataRes data = read_data_from_instruction(is, W, false);
   if (data.status != DATA_OK)
     return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
 
   return INST_OK(s8printf(a, "%s ax, [%d]", c(asm_inst), data.v));
-}
+})
 
-INST_FN(acc_to_mem)
-{
+INST_FN(acc_to_mem, {
   b8 W = BIT(1, pop(is));
   ReadDataRes data = read_data_from_instruction(is, W, false);
   if (data.status != DATA_OK)
     return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
 
   return INST_OK(s8printf(a, "%s [%d], ax", c(asm_inst), data.v));
-}
+})
 
-INST_FN(reg_mem_w_reg_to_either)
-{
+INST_FN(reg_mem_w_reg_to_either, {
   u8 byte1 = pop(is);
   u8 byte2 = pop(is);
 
@@ -437,7 +446,7 @@ INST_FN(reg_mem_w_reg_to_either)
   return INST_OK(s8printf(a, "%s %s, %s", c(asm_inst),
     c(print_memory_location(a, &sd.v.dst)),
     c(print_memory_location(a, &sd.v.src))));
-}
+})
 
 typedef struct {
   MemoryLocation dst;
@@ -483,8 +492,8 @@ ImmediateToLocRes dst_for_im_to_reg_mem_with_s(arena* a,
   return OK_ImmediateToLocRes(ret);
 }
 
-INST_FN(x_im_to_reg_mem)
-{
+INST_FN(x_im_to_reg_mem, {
+  RECORD_STARTPOS();
   u8 byte1 = pop(is);
   u8 byte2 = pop(is);
   ImmediateToLocRes loc
@@ -497,25 +506,23 @@ INST_FN(x_im_to_reg_mem)
     = read_data_from_instruction(is, loc.v.read_two_bytes, loc.v.sign_extended);
 
   if (read_data.status == DATA_OK)
-    return OK_InstRes(s8printf(a, "%s %s %s, %d", c(asm_inst),
+    return INST_OK(s8printf(a, "%s %s %s, %d", c(asm_inst),
       loc.v.read_two_bytes || loc.v.sign_extended ? "word" : "byte",
       c(print_memory_location(a, &loc.v.dst)), read_data.v));
   else
     return ERR_InstRes(INST_DATA_ERROR, read_data.error_msg);
-}
+})
 
-INST_FN(im_from_acc)
-{
+INST_FN(im_from_acc, {
   b8 W = BIT(1, pop(is));
   ReadDataRes data = read_data_from_instruction(is, W, false);
   if (data.status != DATA_OK)
     return ERR_InstRes(INST_DATA_ERROR, data.error_msg);
 
-  return OK_InstRes(s8printf(a, "%s ax, %d", c(asm_inst), data.v));
-}
+  return INST_OK(s8printf(a, "%s ax, %d", c(asm_inst), data.v));
+})
 
-INST_FN(im_to_reg_mem_op_in_byte2)
-{
+INST_FN(im_to_reg_mem_op_in_byte2, {
   u8 byte2 = peek_by_n(is, 1);
   u8 reg = BRANGE(6, 4, byte2);
   switch (reg) {
@@ -530,7 +537,9 @@ INST_FN(im_to_reg_mem_op_in_byte2)
     return ERR_InstRes(INST_REG_FIELD_ERROR,
       s8printf(a, "Cannot decide based on reg: %s.", print_bits(a, reg, 3)));
   }
-}
+})
+
+/* INST_FN() */
 
 InstructionTable create_8086_instruction_table(arena s)
 {
